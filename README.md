@@ -18,7 +18,7 @@ Everything here runs on free tiers, no card needed anywhere.
   unconfirmed rather than present them as fact
 - **Cabs**: a simulated fare estimate, clearly labeled as such (again, no
   free public cab-booking API exists)
-- **Orchestration**: LangGraph's `create_react_agent` with a `MemorySaver`
+- **Orchestration**: LangGraph's `create_react_agent` with a `SqliteSaver`
   checkpointer, so a conversation thread remembers what's already been said
 
 ## Running it
@@ -52,12 +52,6 @@ Keep using the same `thread_id` to continue a planning session.
 
 ## Where this stands right now
 
-Working: multi-step reasoning over tools, live flight/hotel/weather data,
-conversation memory per thread, and a prompt rule that stops the model from
-inventing exact train numbers or hotel names when a search comes back empty.
+Working: multi-step reasoning over tools, live flight/hotel/weather data, conversation memory that survives a restart (SQLite-backed checkpointer), and a prompt rule that stops the model from inventing exact train numbers or hotel names when a search comes back empty.
 
-Not done yet: no booking-confirmation step (it only searches/estimates right
-now, doesn't simulate an actual booking), no streaming of the reasoning trace
-to a frontend, no persistent storage — `MemorySaver` is in-process only, so a
-restart clears every conversation. There's also no frontend yet; this is
-backend/API only for now.
+Not done yet: no booking-confirmation step (it only searches/estimates right now, doesn't simulate an actual booking), no streaming of the reasoning trace to a frontend. There's also no frontend yet; this is backend/API only for now.

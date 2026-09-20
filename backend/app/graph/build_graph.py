@@ -1,5 +1,7 @@
+import sqlite3
+
 from langchain_groq import ChatGroq
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 
 from app.tools.attractions import search_web
@@ -33,7 +35,8 @@ def build_agent():
 
     tools = [search_flights, search_hotels, search_web, get_weather, estimate_cab_fare]
 
-    checkpointer = MemorySaver()
+    conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
 
     agent = create_react_agent(
         llm,
