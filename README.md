@@ -10,6 +10,7 @@ Everything here runs on free tiers, no card needed anywhere.
 
 ## How it's put together
 
+**Backend**
 - **LLM**: Groq (`openai/gpt-oss-120b`) — fast and free, handles tool calling well
 - **Flights & hotels**: SerpApi's Google Flights / Google Hotels engines
 - **Weather**: OpenWeatherMap
@@ -20,15 +21,25 @@ Everything here runs on free tiers, no card needed anywhere.
   free public cab-booking API exists)
 - **Orchestration**: LangGraph's `create_react_agent` with a `SqliteSaver`
   checkpointer, so a conversation thread remembers what's already been said
-- **Booking safety**: `book_flight`/`book_hotel` are separate simulated-booking
-  tools that call LangGraph's `interrupt()`, pausing the whole run and
-  requiring an explicit approve/deny before completing — one pause per
-  booking action, so a round-trip needs two separate confirmations
-- **Streaming**: `/chat/stream` and `/confirm/stream` yield Server-Sent Events
-  as the agent works — each tool call, each tool result, and each pause for
+- **Booking safety**: `book_flight`/`book_hotel` are simulated-booking tools
+  (no real payment or reservation is ever made anywhere) that call
+  LangGraph's `interrupt()`, pausing the run and requiring an explicit
+  approve/deny before completing — one pause per booking action, so a
+  round-trip needs two separate confirmations
+- **Streaming**: `/chat/stream` and `/confirm/stream` yield Server-Sent
+  Events as the agent works — each tool call, each result, each pause for
   confirmation — instead of waiting for the whole run to finish
 
+**Frontend**
+- React + Vite chat UI
+- Renders a dedicated confirmation card with Approve/Decline buttons when
+  the backend pauses on a booking, instead of expecting the user to type a
+  reply — matches the backend's requirement that a paused thread can only be
+  resumed via `/confirm`, not a new chat message
+
 ## Running it
+
+### Backend
 
 ```
 cd backend
@@ -48,15 +59,25 @@ Then:
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Non-streaming (simplest, good for quick tests)
+### Frontend
 
+```
+cd frontend
+npm install
+npm run dev
+```
+
+Opens on `http://localhost:5173`. Needs the backend running on port 8000 at
+the same time (CORS is wide open for local dev).
+
+### API directly, without the frontend
+
+Non-streaming, simplest for quick tests:
 ```
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Plan a budget trip from Delhi to Goa, 1 to 7 May 2027", "thread_id": "test1"}'
 ```
-
-Keep using the same `thread_id` to continue a planning session.
 
 If the agent decides to book something, this responds with
 `{"status": "confirmation_required", "pending_action": {...}}` instead of a
@@ -67,39 +88,35 @@ curl -X POST http://localhost:8000/confirm \
   -d '{"thread_id": "test1", "approved": true}'
 ```
 
-### Streaming (what a real frontend will use)
-
-Same request/response shape, but hits `/chat/stream` and `/confirm/stream`
-instead, and streams Server-Sent Events as the agent works rather than
-blocking until it's done. Each event is one of:
-
-- `event: step` — an AI message deciding on a tool call, or a tool's result
-- `event: interrupt` — the agent paused, waiting for a booking confirmation
-- `event: done` — the run finished (or paused); `data.response` has the
-  final text, or `null` if it stopped at an interrupt instead
+Streaming versions of both exist at `/chat/stream` and `/confirm/stream`,
+returning Server-Sent Events instead of a single JSON blob — this is what
+the frontend is built to eventually use (currently it still calls the
+non-streaming endpoints; wiring it to the stream is a planned next step).
 
 On Windows, PowerShell mangles inline JSON with curl, so write the payload
 to a file first (put scratch test payloads under `backend/scratch/` —
 that folder is gitignored):
-
 ```
 '{"message": "...", "thread_id": "t1"}' | Out-File -Encoding utf8 scratch/body.json
 curl.exe -N -X POST http://localhost:8000/chat/stream -H "Content-Type: application/json" -d "@scratch/body.json"
 ```
 
-(`-N` disables curl's output buffering so events print as they arrive
-instead of all at once at the end.)
-
 ## Where this stands right now
 
-Working: multi-step reasoning over tools, live flight/hotel/weather data,
-conversation memory that survives a restart (SQLite-backed checkpointer), a
-prompt rule that stops the model from inventing exact train numbers or hotel
-names when a search comes back empty, a human-confirmation gate before any
-simulated booking completes, and SSE streaming of the whole reasoning trace.
+Working end to end: multi-step reasoning over tools, live flight/hotel/
+weather data, conversation memory that survives a restart, a prompt rule
+against inventing exact numbers when a search comes back empty, simulated
+booking with a real human-confirmation gate, SSE streaming from the
+backend, and a React frontend with a proper confirm/decline UI (tested
+across multi-leg trips requiring several separate confirmations).
 
-Not done yet: no frontend — this is backend/API only for now. Also worth
-noting: the agent sometimes asks "should I book this?" in plain text even
-after being told to just book it, instead of calling the tool directly (the
-system prompt could be tightened here, but the actual safety gate — the
-`interrupt()` call inside the booking tools — works correctly regardless).
+Known gaps / next steps:
+- The frontend currently calls the non-streaming `/chat` and `/confirm`
+  endpoints, not the SSE versions — so it waits for the full response
+  rather than showing live reasoning steps.
+- No budget-overrun warning: the agent can present a total that blows past
+  a budget the user explicitly stated, without clearly flagging it.
+- No systematic resilience testing yet (API rate limits, empty search
+  results, etc. — the tools catch errors individually, but this hasn't
+  been stress-tested).
+- Not deployed anywhere yet — this all currently only runs locally.

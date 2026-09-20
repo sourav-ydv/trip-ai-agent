@@ -48,7 +48,7 @@ export default function App() {
     setLoading(true)
     setMessages((prev) => [
       ...prev,
-      { role: 'user', content: approved ? '✅ Approved' : '❌ Declined' },
+      { role: 'user', content: approved ? 'Approved' : 'Declined' },
     ])
     setPendingAction(null)
 
