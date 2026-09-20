@@ -1,0 +1,112 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f4f4f5;
+}
+
+.app {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.chat-window {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 0;
+}
+
+.bubble {
+  max-width: 80%;
+  padding: 0.6rem 0.9rem;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: #2563eb;
+  color: white;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: white;
+  border: 1px solid #ddd;
+}
+
+.bubble.loading {
+  color: #888;
+  font-style: italic;
+}
+
+.input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+textarea {
+  flex: 1;
+  resize: none;
+  padding: 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-family: inherit;
+}
+
+button {
+  padding: 0 1.2rem;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #93b8f5;
+  cursor: not-allowed;
+}
+
+.confirm-card {
+  align-self: stretch;
+  background: #fff7e6;
+  border: 1px solid #f0c36d;
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+}
+
+.confirm-title {
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.confirm-details {
+  margin-bottom: 0.6rem;
+  color: #444;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.confirm-buttons button {
+  padding: 0.4rem 1rem;
+}
+
+.confirm-buttons .approve {
+  background: #16a34a;
+}
+
+.confirm-buttons .decline {
+  background: #dc2626;
+}
