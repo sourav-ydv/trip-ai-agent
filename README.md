@@ -20,6 +20,11 @@ Everything here runs on free tiers, no card needed anywhere.
   free public cab-booking API exists)
 - **Orchestration**: LangGraph's `create_react_agent` with a `SqliteSaver`
   checkpointer, so a conversation thread remembers what's already been said
+- **Booking safety**: `book_flight`/`book_hotel` are separate simulated-booking
+  tools that call LangGraph's `interrupt()`, pausing the whole run and
+  requiring an explicit approve/deny via a `/confirm` endpoint before
+  completing — one pause per booking action, so a round-trip needs two
+  separate confirmations
 
 ## Running it
 
@@ -50,8 +55,26 @@ curl -X POST http://localhost:8000/chat \
 
 Keep using the same `thread_id` to continue a planning session.
 
+If the agent decides to book something, `/chat` responds with
+`{"status": "confirmation_required", "pending_action": {...}}` instead of a
+normal answer. Approve or deny it with:
+```
+curl -X POST http://localhost:8000/confirm \
+  -H "Content-Type: application/json" \
+  -d '{"thread_id": "test1", "approved": true}'
+```
+
+
 ## Where this stands right now
 
-Working: multi-step reasoning over tools, live flight/hotel/weather data, conversation memory that survives a restart (SQLite-backed checkpointer), and a prompt rule that stops the model from inventing exact train numbers or hotel names when a search comes back empty.
+Working: multi-step reasoning over tools, live flight/hotel/weather data,
+conversation memory that survives a restart (SQLite-backed checkpointer), and
+a prompt rule that stops the model from inventing exact train numbers or
+hotel names when a search comes back empty. Simulated flight/hotel booking
+now has a real human-confirmation gate before anything "completes."
 
-Not done yet: no booking-confirmation step (it only searches/estimates right now, doesn't simulate an actual booking), no streaming of the reasoning trace to a frontend. There's also no frontend yet; this is backend/API only for now.
+Not done yet: no streaming of the reasoning trace to a frontend, no
+frontend at all yet — this is backend/API only for now. `/chat` and
+`/confirm` both currently return a `trace` field with the full message
+history for debugging; that'll come out once there's a frontend that
+visualizes it properly instead.
