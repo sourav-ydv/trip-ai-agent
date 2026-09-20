@@ -5,6 +5,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 
 from app.tools.attractions import search_web
+from app.tools.booking import book_flight, book_hotel
 from app.tools.cabs import estimate_cab_fare
 from app.tools.flights import search_flights
 from app.tools.hotels import search_hotels
@@ -27,13 +28,28 @@ if it were a real train number, fare, or hotel name.
 
 Once you've gathered enough, give a clear day-by-day plan with a total cost
 estimate, marking clearly which numbers are tool-confirmed vs. rough
-estimates."""
+estimates.
+
+Only call book_flight or book_hotel once the user has explicitly told you
+which specific option (by name/airline) they want booked — never book the
+first or "best" option on their behalf without them saying so. These tools
+will themselves pause for a human confirmation step before completing, so
+don't ask "shall I book this?" yourself and then also call the tool — just
+call it once they've chosen, and the confirmation step happens there."""
 
 
 def build_agent():
-    llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
+    llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0, reasoning_format="hidden")
 
-    tools = [search_flights, search_hotels, search_web, get_weather, estimate_cab_fare]
+    tools = [
+        search_flights,
+        search_hotels,
+        search_web,
+        get_weather,
+        estimate_cab_fare,
+        book_flight,
+        book_hotel,
+    ]
 
     conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
     checkpointer = SqliteSaver(conn)
