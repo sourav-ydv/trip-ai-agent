@@ -1,5 +1,6 @@
 import sqlite3
 
+from langchain_core.messages import SystemMessage, trim_messages
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
@@ -30,12 +31,31 @@ Once you've gathered enough, give a clear day-by-day plan with a total cost
 estimate, marking clearly which numbers are tool-confirmed vs. rough
 estimates.
 
+If the user stated a budget (overall, or for a specific category like
+accommodation or "everything except flights"), always compare your running
+and final totals against it explicitly — e.g. "This puts you at ₹X, which is
+₹Y over your stated budget." Do this the moment a total is calculable, not
+just buried in a table at the end. If a total exceeds the budget, say so
+plainly before presenting options to fix it (cheaper hotel, fewer add-ons,
+etc.) — do not let a table of numbers speak for itself when it contradicts
+what the user asked to stay under.
+
 Only call book_flight or book_hotel once the user has explicitly told you
 which specific option (by name/airline) they want booked — never book the
-first or "best" option on their behalf without them saying so. These tools
-will themselves pause for a human confirmation step before completing, so
-don't ask "shall I book this?" yourself and then also call the tool — just
-call it once they've chosen, and the confirmation step happens there."""
+first or "best" option on their behalf without them saying so. Once they've
+told you to proceed, call the tool immediately in that same turn — do not
+also ask "shall I proceed?" first. The confirmation the user already sees is
+the interrupt shown by the tool itself; asking again in your own text before
+calling it is a redundant, unnecessary extra round-trip.
+
+Be concise by default. Don't re-print the full itinerary, cost table, or
+day-by-day plan on every turn — only do that the first time you present a
+complete plan, or when the user explicitly asks to see it again or asks for
+something that changes it materially (a new destination, a changed budget,
+a different hotel choice). For an ordinary follow-up (answering one more
+question, confirming one detail, adding one activity), just address that
+directly in a few sentences — treat every full table as consuming real,
+limited budget on future turns, not as free reassurance."""
 
 
 def build_agent():
@@ -51,13 +71,27 @@ def build_agent():
         book_hotel,
     ]
 
+    def approx_token_counter(messages) -> int:
+        total_chars = sum(len(str(m.content)) for m in messages)
+        return total_chars // 4
+
+    def build_prompt(state):
+        trimmed = trim_messages(
+            state["messages"],
+            max_tokens=4000,
+            strategy="last",
+            token_counter=approx_token_counter,
+            start_on="human",
+        )
+        return [SystemMessage(content=SYSTEM_PROMPT), *trimmed]
+
     conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
     checkpointer = SqliteSaver(conn)
 
     agent = create_react_agent(
         llm,
         tools,
-        prompt=SYSTEM_PROMPT,
+        prompt=build_prompt,
         checkpointer=checkpointer,
     )
     return agent

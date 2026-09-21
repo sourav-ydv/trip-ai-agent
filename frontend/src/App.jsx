@@ -13,6 +13,8 @@ export default function App() {
   function handleResult(data) {
     if (data.status === 'confirmation_required') {
       setPendingAction(data.pending_action)
+    } else if (data.status === 'error') {
+      setMessages((prev) => [...prev, { role: 'assistant', content: `${data.message}` }])
     } else {
       setMessages((prev) => [...prev, { role: 'assistant', content: data.response }])
     }

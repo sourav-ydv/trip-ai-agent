@@ -7,6 +7,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from groq import APIStatusError, RateLimitError
 from langgraph.types import Command
 from pydantic import BaseModel
 
@@ -26,7 +27,7 @@ agent = build_agent()
 
 class ChatRequest(BaseModel):
     message: str
-    thread_id: str = "default"
+    thread_id: str = "default"  
 
 
 class ConfirmRequest(BaseModel):
@@ -39,6 +40,51 @@ def _format_result(result: dict) -> dict:
     if interrupts:
         return {"status": "confirmation_required", "pending_action": interrupts[0].value}
     return {"status": "ok", "response": result["messages"][-1].content}
+
+
+def _run_agent_safely(fn):
+    """
+    Wraps an agent.invoke() call so a Groq free-tier rate limit (per-minute
+    or per-day token cap) comes back as a clean, friendly error instead of
+    an unhandled 500 that just drops the connection on the frontend.
+    """
+    try:
+        result = fn()
+        return _format_result(result)
+    except RateLimitError as e:
+        return {
+            "status": "error",
+            "error_type": "rate_limit",
+            "message": (
+                "Hit Groq's free-tier rate limit (this is a real usage cap, not a bug). "
+                "Wait a bit and try again."
+            ),
+            "detail": str(e),
+        }
+    except APIStatusError as e:
+        return {
+            "status": "error",
+            "error_type": "api_error",
+            "message": "The LLM provider returned an error. Try again in a moment.",
+            "detail": str(e),
+        }
+
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+    return _run_agent_safely(
+        lambda: agent.invoke({"messages": [("user", req.message)]}, config=config)
+    )
+
+
+@app.post("/confirm")
+def confirm(req: ConfirmRequest):
+    """Resume a graph that's paused at a booking confirmation."""
+    config = {"configurable": {"thread_id": req.thread_id}}
+    return _run_agent_safely(
+        lambda: agent.invoke(Command(resume={"approved": req.approved}), config=config)
+    )
 
 
 def _sse(event: str, data: dict) -> str:
@@ -54,40 +100,46 @@ def _stream_events(graph_input, config: dict):
     in the terminal, now over HTTP for a frontend to render.
     """
     final_text = None
-    for chunk in agent.stream(graph_input, config=config, stream_mode="updates"):
-        if "__interrupt__" in chunk:
-            payload = chunk["__interrupt__"][0].value
-            yield _sse("interrupt", payload)
-            continue
+    try:
+        for chunk in agent.stream(graph_input, config=config, stream_mode="updates"):
+            if "__interrupt__" in chunk:
+                payload = chunk["__interrupt__"][0].value
+                yield _sse("interrupt", payload)
+                continue
 
-        for node_name, node_output in chunk.items():
-            for m in node_output.get("messages", []):
-                event_data = {
-                    "node": node_name,
-                    "type": m.__class__.__name__,
-                    "content": m.content,
-                    "tool_calls": getattr(m, "tool_calls", None),
-                }
-                yield _sse("step", event_data)
-                if m.__class__.__name__ == "AIMessage" and m.content:
-                    final_text = m.content
+            for node_name, node_output in chunk.items():
+                for m in node_output.get("messages", []):
+                    event_data = {
+                        "node": node_name,
+                        "type": m.__class__.__name__,
+                        "content": m.content,
+                        "tool_calls": getattr(m, "tool_calls", None),
+                    }
+                    yield _sse("step", event_data)
+                    if m.__class__.__name__ == "AIMessage" and m.content:
+                        final_text = m.content
+    except RateLimitError as e:
+        yield _sse(
+            "error",
+            {
+                "error_type": "rate_limit",
+                "message": "Hit Groq's free-tier rate limit. Wait a bit and try again.",
+                "detail": str(e),
+            },
+        )
+        return
+    except APIStatusError as e:
+        yield _sse(
+            "error",
+            {
+                "error_type": "api_error",
+                "message": "The LLM provider returned an error. Try again in a moment.",
+                "detail": str(e),
+            },
+        )
+        return
 
     yield _sse("done", {"response": final_text})
-
-
-@app.post("/chat")
-def chat(req: ChatRequest):
-    config = {"configurable": {"thread_id": req.thread_id}}
-    result = agent.invoke({"messages": [("user", req.message)]}, config=config)
-    return _format_result(result)
-
-
-@app.post("/confirm")
-def confirm(req: ConfirmRequest):
-    """Resume a graph that's paused at a booking confirmation."""
-    config = {"configurable": {"thread_id": req.thread_id}}
-    result = agent.invoke(Command(resume={"approved": req.approved}), config=config)
-    return _format_result(result)
 
 
 @app.post("/chat/stream")
