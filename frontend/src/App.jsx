@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -85,7 +88,22 @@ export default function App() {
       <div className="chat-window">
         {messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}`}>
-            {m.content}
+            {m.role === 'assistant' ? (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  table: ({ node, ...props }) => (
+                    <div className="table-wrapper">
+                      <table {...props} />
+                    </div>
+                  ),
+                }}
+              >
+                {m.content}
+              </ReactMarkdown>
+            ) : (
+              m.content
+            )}
           </div>
         ))}
         {loading && <div className="bubble assistant loading">thinking…</div>}

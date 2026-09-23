@@ -5,7 +5,7 @@ body {
 }
 
 .app {
-  max-width: 700px;
+  max-width: 900px;
   margin: 0 auto;
   padding: 1.5rem;
   display: flex;
@@ -48,6 +48,65 @@ body {
   font-style: italic;
 }
 
+.bubble.assistant :first-child {
+  margin-top: 0;
+}
+
+.bubble.assistant :last-child {
+  margin-bottom: 0;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  margin: 0.6rem 0;
+}
+
+.bubble.assistant table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.92rem;
+}
+
+.bubble.assistant th,
+.bubble.assistant td {
+  border: 1px solid #ddd;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+.bubble.assistant th {
+  background: #f4f4f5;
+}
+
+.bubble.assistant code {
+  background: #f0f0f0;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.bubble.assistant ul,
+.bubble.assistant ol {
+  padding-left: 1.3rem;
+  margin: 0.4rem 0;
+}
+
+.bubble.assistant h1,
+.bubble.assistant h2,
+.bubble.assistant h3 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 1.05rem;
+}
+
+.bubble.assistant p {
+  margin: 0.4rem 0;
+}
+
+.bubble.assistant p:empty {
+  display: none;
+  margin: 0;
+}
+
 .input-row {
   display: flex;
   gap: 0.5rem;
@@ -78,35 +137,56 @@ button:disabled {
 
 .confirm-card {
   align-self: stretch;
-  background: #fff7e6;
-  border: 1px solid #f0c36d;
-  border-radius: 10px;
-  padding: 0.8rem 1rem;
+  background: #fffbeb;
+  border: 1px solid #fbbf24;
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .confirm-title {
-  font-weight: 600;
-  margin-bottom: 0.3rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #92400e;
+  margin-bottom: 0.5rem;
 }
 
 .confirm-details {
-  margin-bottom: 0.6rem;
-  color: #444;
+  margin-bottom: 0.9rem;
+  color: #1f2937;
+  font-size: 1rem;
+  font-weight: 500;
 }
 
 .confirm-buttons {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .confirm-buttons button {
-  padding: 0.4rem 1rem;
+  flex: 1;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.confirm-buttons button:hover {
+  opacity: 0.88;
 }
 
 .confirm-buttons .approve {
   background: #16a34a;
+  color: white;
 }
 
 .confirm-buttons .decline {
-  background: #dc2626;
+  background: white;
+  color: #dc2626;
+  border: 1.5px solid #dc2626;
 }

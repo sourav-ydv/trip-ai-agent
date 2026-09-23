@@ -1,4 +1,5 @@
 import json
+import logging
 
 from dotenv import load_dotenv
 
@@ -12,6 +13,9 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from app.graph.build_graph import build_agent
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("trip-agent")
 
 app = FastAPI(title="Trip AI Agent")
 
@@ -27,7 +31,7 @@ agent = build_agent()
 
 class ChatRequest(BaseModel):
     message: str
-    thread_id: str = "default"  
+    thread_id: str = "default" 
 
 
 class ConfirmRequest(BaseModel):
@@ -44,14 +48,18 @@ def _format_result(result: dict) -> dict:
 
 def _run_agent_safely(fn):
     """
-    Wraps an agent.invoke() call so a Groq free-tier rate limit (per-minute
-    or per-day token cap) comes back as a clean, friendly error instead of
-    an unhandled 500 that just drops the connection on the frontend.
+    Wraps an agent.invoke() call so a Groq error — rate limit, connection
+    timeout, or anything else — comes back as a clean, friendly error
+    instead of an unhandled 500 that just drops the connection on the
+    frontend. Catches broadly on purpose: a resilience layer that only
+    covers the specific errors seen so far will keep getting caught out by
+    the next transient failure mode.
     """
     try:
         result = fn()
         return _format_result(result)
     except RateLimitError as e:
+        logger.warning("Groq rate limit hit: %s", e)
         return {
             "status": "error",
             "error_type": "rate_limit",
@@ -62,10 +70,19 @@ def _run_agent_safely(fn):
             "detail": str(e),
         }
     except APIStatusError as e:
+        logger.error("Groq API status error: %s", e)
         return {
             "status": "error",
             "error_type": "api_error",
             "message": "The LLM provider returned an error. Try again in a moment.",
+            "detail": str(e),
+        }
+    except Exception as e:
+        logger.exception("Unexpected error while running the agent")
+        return {
+            "status": "error",
+            "error_type": "unknown",
+            "message": "Something went wrong reaching the AI provider (possibly a network hiccup). Try again.",
             "detail": str(e),
         }
 
@@ -119,6 +136,7 @@ def _stream_events(graph_input, config: dict):
                     if m.__class__.__name__ == "AIMessage" and m.content:
                         final_text = m.content
     except RateLimitError as e:
+        logger.warning("Groq rate limit hit (stream): %s", e)
         yield _sse(
             "error",
             {
@@ -129,11 +147,23 @@ def _stream_events(graph_input, config: dict):
         )
         return
     except APIStatusError as e:
+        logger.error("Groq API status error (stream): %s", e)
         yield _sse(
             "error",
             {
                 "error_type": "api_error",
                 "message": "The LLM provider returned an error. Try again in a moment.",
+                "detail": str(e),
+            },
+        )
+        return
+    except Exception as e:
+        logger.exception("Unexpected error while streaming the agent")
+        yield _sse(
+            "error",
+            {
+                "error_type": "unknown",
+                "message": "Something went wrong reaching the AI provider (possibly a network hiccup). Try again.",
                 "detail": str(e),
             },
         )
