@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from groq import APIStatusError, RateLimitError
 from langgraph.types import Command
 from pydantic import BaseModel
+from psycopg import OperationalError as PgOperationalError
 
 from app.graph.build_graph import build_agent
 
@@ -56,7 +57,11 @@ def _run_agent_safely(fn):
     the next transient failure mode.
     """
     try:
-        result = fn()
+        try:
+            result = fn()
+        except PgOperationalError as e:
+            logger.warning("Postgres connection dropped mid-query, retrying once: %s", e)
+            result = fn()
         return _format_result(result)
     except RateLimitError as e:
         logger.warning("Groq rate limit hit: %s", e)

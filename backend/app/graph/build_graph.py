@@ -1,10 +1,13 @@
-import sqlite3
+import os
 from datetime import datetime
 
+import psycopg
 from langchain_core.messages import SystemMessage, trim_messages
 from langchain_groq import ChatGroq
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.prebuilt import create_react_agent
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from app.tools.attractions import search_web
 from app.tools.booking import book_flight, book_hotel
@@ -100,7 +103,7 @@ def build_agent():
     def build_prompt(state):
         trimmed = trim_messages(
             state["messages"],
-            max_tokens=4000,
+            max_tokens=2500,
             strategy="last",
             token_counter=approx_token_counter,
             start_on="human",
@@ -116,8 +119,16 @@ def build_agent():
         )
         return [SystemMessage(content=SYSTEM_PROMPT + date_rule), *trimmed]
 
-    conn = sqlite3.connect("checkpoints.sqlite", check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
+    pool = ConnectionPool(
+        conninfo=os.environ["DATABASE_URL"],
+        max_size=5,
+        kwargs={"autocommit": True, "row_factory": dict_row},
+        check=ConnectionPool.check_connection,
+        open=False,
+    )
+    pool.open()
+    checkpointer = PostgresSaver(pool)
+    checkpointer.setup() 
 
     agent = create_react_agent(
         llm,
