@@ -19,8 +19,15 @@ Everything here runs on free tiers, no card needed anywhere.
   unconfirmed rather than present them as fact
 - **Cabs**: a simulated fare estimate, clearly labeled as such (again, no
   free public cab-booking API exists)
-- **Orchestration**: LangGraph's `create_react_agent` with a `SqliteSaver`
-  checkpointer, so a conversation thread remembers what's already been said
+- **Orchestration**: LangGraph's `create_react_agent`
+- **Persistence**: a Postgres checkpointer (Neon free tier) behind a
+  connection pool, so conversation memory survives restarts and deployments
+  — a local sqlite file wouldn't survive on most free hosts' ephemeral
+  filesystems. The pool proactively health-checks connections before
+  handing them out (`check=ConnectionPool.check_connection`) and the app
+  layer retries once on a mid-query connection drop, since Neon suspends
+  its compute after inactivity and can kill a connection either while idle
+  or, less commonly, mid-query
 - **Booking safety**: `book_flight`/`book_hotel` are simulated-booking tools
   (no real payment or reservation is ever made anywhere) that call
   LangGraph's `interrupt()`, pausing the run and requiring an explicit
@@ -30,13 +37,16 @@ Everything here runs on free tiers, no card needed anywhere.
   Events as the agent works — each tool call, each result, each pause for
   confirmation — instead of waiting for the whole run to finish
 - **Context management**: conversation history is trimmed to a token budget
-  before every LLM call (a rough char-based estimate, not a real tokenizer)
-  to stay under Groq's free-tier per-minute limit; the prompt also tells the
-  model not to re-dump the full itinerary/cost table on every turn
+  before every LLM call to stay under Groq's free-tier per-minute limit;
+  the prompt also tells the model not to re-dump the full itinerary/cost
+  table on every turn. Note this caps the size of any *one* request — a
+  single turn that chains many tool calls (e.g. several search_web lookups
+  in a row) can still add up past the per-minute cap cumulatively; Groq's
+  SDK auto-retries with backoff in that case, and if retries are exhausted
+  the error surfaces as a clean message rather than a crash
 - **Date awareness**: the current date is injected into the prompt fresh on
   every request, with an explicit rule to assume the current (or next, if
-  already passed) year when the user gives a date with no year — fixes an
-  earlier bug where the model defaulted to a past year
+  already passed) year when the user gives a date with no year
 - **Airport-code accuracy**: the model is told to verify uncertain IATA
   codes via search_web rather than guess — a wrong code silently returns
   zero results, which previously got misreported as "no flights available"
@@ -74,6 +84,8 @@ Fill in `.env`:
 - `GROQ_API_KEY` — console.groq.com
 - `SERPAPI_API_KEY` — serpapi.com (free plan)
 - `OPENWEATHER_API_KEY` — openweathermap.org
+- `DATABASE_URL` — a Neon (neon.tech) Postgres connection string, **pooled**
+  variant (hostname contains `-pooler`)
 
 Then:
 ```
@@ -125,24 +137,28 @@ curl.exe -N -X POST http://localhost:8000/chat/stream -H "Content-Type: applicat
 ## Where this stands right now
 
 Working end to end: multi-step reasoning over tools, live flight/hotel/
-weather data, conversation memory that survives a restart, accurate
-date-year and airport-code handling, a budget-overrun warning rule,
-simulated booking with a real human-confirmation gate, SSE streaming from
-the backend, a React frontend with proper markdown rendering and a
-confirm/decline UI, context trimming for Groq's free-tier limits, and
-logged, graceful handling of provider errors instead of hard crashes.
+weather data, conversation memory on a resilient hosted Postgres
+checkpointer, accurate date-year and airport-code handling, a
+budget-overrun warning rule, simulated booking with a real
+human-confirmation gate, SSE streaming from the backend, a React frontend
+with proper markdown rendering and a confirm/decline UI, context trimming
+for Groq's free-tier limits, and logged, graceful handling of provider
+errors (rate limits, timeouts, dropped DB connections) instead of hard
+crashes.
 
 Known gaps / next steps:
 - The frontend still calls the non-streaming `/chat`/`/confirm` endpoints,
   not the SSE versions.
+- No caching of repeated `search_web` lookups within a conversation (e.g.
+  the same IATA code gets looked up more than once in a long session) —
+  would reduce token usage and how often the per-minute rate limit gets hit
+  during tool-heavy turns.
 - The anti-hallucination rule covers train/flight numbers, fares, and hotel
   names explicitly, but not other invented specifics like restaurant names
   — seen once in testing, not yet fixed.
-- `SqliteSaver` writes to a local file, which won't survive on most free
-  hosting platforms' ephemeral filesystems — needs to become a hosted
-  Postgres checkpointer before deployment.
 - CORS is wide open (`*`) for local development; needs locking to the
   actual deployed frontend origin before going live.
 - The frontend hardcodes `http://localhost:8000` as the API base — needs
   to become configurable once there's a deployed backend URL.
-- Not deployed anywhere yet — this all currently only runs locally.
+- Not deployed anywhere yet — backend persistence is now deployment-ready
+  (Postgres), but the app itself still only runs locally.
