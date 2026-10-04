@@ -6,7 +6,14 @@ for your preferences instead of guessing. Built this to actually understand
 how agent orchestration works beyond toy examples, not just call an LLM once
 and call it a day.
 
-Everything here runs on free tiers, no card needed anywhere.
+**Live**: [trip-ai-agent-1.onrender.com](https://trip-ai-agent-1.onrender.com)
+(backend at [trip-ai-agent.onrender.com](https://trip-ai-agent.onrender.com))
+
+Everything here runs on free tiers, no card needed anywhere — including the
+hosting. Note: the backend is on Render's free tier, which sleeps after 15
+minutes of inactivity, so the first request after a while can take ~60s to
+wake up. That's an accepted trade-off of genuinely free, no-card hosting,
+not a bug.
 
 ## How it's put together
 
@@ -22,12 +29,11 @@ Everything here runs on free tiers, no card needed anywhere.
 - **Orchestration**: LangGraph's `create_react_agent`
 - **Persistence**: a Postgres checkpointer (Neon free tier) behind a
   connection pool, so conversation memory survives restarts and deployments
-  — a local sqlite file wouldn't survive on most free hosts' ephemeral
-  filesystems. The pool proactively health-checks connections before
-  handing them out (`check=ConnectionPool.check_connection`) and the app
-  layer retries once on a mid-query connection drop, since Neon suspends
-  its compute after inactivity and can kill a connection either while idle
-  or, less commonly, mid-query
+  — a local sqlite file wouldn't survive on Render's ephemeral filesystem.
+  The pool proactively health-checks connections before handing them out
+  and the app layer retries once on a mid-query connection drop, since
+  Neon suspends its compute after inactivity and can kill a connection
+  either while idle or, less commonly, mid-query
 - **Booking safety**: `book_flight`/`book_hotel` are simulated-booking tools
   (no real payment or reservation is ever made anywhere) that call
   LangGraph's `interrupt()`, pausing the run and requiring an explicit
@@ -39,11 +45,10 @@ Everything here runs on free tiers, no card needed anywhere.
 - **Context management**: conversation history is trimmed to a token budget
   before every LLM call to stay under Groq's free-tier per-minute limit;
   the prompt also tells the model not to re-dump the full itinerary/cost
-  table on every turn. Note this caps the size of any *one* request — a
-  single turn that chains many tool calls (e.g. several search_web lookups
-  in a row) can still add up past the per-minute cap cumulatively; Groq's
-  SDK auto-retries with backoff in that case, and if retries are exhausted
-  the error surfaces as a clean message rather than a crash
+  table on every turn. A single turn that chains many tool calls can still
+  add up past the per-minute cap cumulatively; Groq's SDK auto-retries with
+  backoff in that case, and if retries are exhausted the error surfaces as
+  a clean message rather than a crash
 - **Date awareness**: the current date is injected into the prompt fresh on
   every request, with an explicit rule to assume the current (or next, if
   already passed) year when the user gives a date with no year
@@ -54,12 +59,17 @@ Everything here runs on free tiers, no card needed anywhere.
   anything else) come back as clean `{"status": "error", ...}` responses
   instead of crashing the request, and are logged server-side so they're
   actually debuggable instead of failing silently
+- **CORS**: locked to the deployed frontend's origin specifically, not
+  wide open
 
 **Frontend**
 - React + Vite chat UI, rendering agent responses as real markdown
   (`react-markdown` + `remark-gfm`) — tables, bold text, lists — instead of
   raw text, with wide tables wrapped in their own horizontally-scrollable
-  container so they don't overflow the page
+  container so they don't overflow the page. Known cosmetic gap: a literal
+  `<br>` can occasionally show as text instead of a line break inside a
+  table cell — a deliberate trade-off made to fix a worse table-rendering
+  bug, not yet revisited
 - Dedicated confirmation card (amber, with solid-green Approve / outlined-
   red Decline buttons) when the backend pauses on a booking, instead of
   expecting the user to type a reply — matches the backend's requirement
@@ -67,8 +77,10 @@ Everything here runs on free tiers, no card needed anywhere.
   message
 - Shows a friendly inline message for backend errors instead of a raw
   fetch failure
+- API base URL is configurable via `VITE_API_BASE`, so the same code runs
+  against localhost in dev and the deployed backend in production
 
-## Running it
+## Running it locally
 
 ### Backend
 
@@ -97,11 +109,12 @@ uvicorn app.main:app --reload --port 8000
 ```
 cd frontend
 npm install
+cp .env.example .env.local   # leave VITE_API_BASE blank for localhost default
 npm run dev
 ```
 
 Opens on `http://localhost:5173`. Needs the backend running on port 8000 at
-the same time (CORS is wide open for local dev).
+the same time.
 
 ### API directly, without the frontend
 
@@ -134,31 +147,42 @@ that folder is gitignored):
 curl.exe -N -X POST http://localhost:8000/chat/stream -H "Content-Type: application/json" -d "@scratch/body.json"
 ```
 
+## Deployment
+
+Both backend and frontend are deployed on Render (free tier, no card):
+
+- **Backend**: Web Service, root directory `backend`, build command
+  `pip install -r requirements.txt`, start command
+  `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Environment variables
+  set directly in Render's dashboard (`GROQ_API_KEY`, `SERPAPI_API_KEY`,
+  `OPENWEATHER_API_KEY`, `DATABASE_URL`).
+- **Frontend**: Static Site, root directory `frontend`, build command
+  `npm install && npm run build`, publish directory `dist`. One environment
+  variable: `VITE_API_BASE` set to the backend's Render URL.
+- Both redeploy automatically on push to `main`.
+
 ## Where this stands right now
 
-Working end to end: multi-step reasoning over tools, live flight/hotel/
-weather data, conversation memory on a resilient hosted Postgres
-checkpointer, accurate date-year and airport-code handling, a
-budget-overrun warning rule, simulated booking with a real
-human-confirmation gate, SSE streaming from the backend, a React frontend
-with proper markdown rendering and a confirm/decline UI, context trimming
-for Groq's free-tier limits, and logged, graceful handling of provider
-errors (rate limits, timeouts, dropped DB connections) instead of hard
-crashes.
+Fully working, deployed, and tested end to end in production: multi-step
+reasoning over tools, live flight/hotel/weather data, conversation memory
+on a resilient hosted Postgres checkpointer, accurate date-year and
+airport-code handling, a budget-overrun warning rule, simulated booking
+with a real human-confirmation gate (verified live across multiple
+bookings), SSE streaming from the backend, a React frontend with markdown
+rendering and a confirm/decline UI, context trimming for Groq's free-tier
+limits, graceful handling of provider and database errors, and CORS locked
+to the actual deployed frontend origin.
 
-Known gaps / next steps:
+Known gaps / possible next steps:
 - The frontend still calls the non-streaming `/chat`/`/confirm` endpoints,
   not the SSE versions.
-- No caching of repeated `search_web` lookups within a conversation (e.g.
-  the same IATA code gets looked up more than once in a long session) —
-  would reduce token usage and how often the per-minute rate limit gets hit
-  during tool-heavy turns.
+- No caching of repeated `search_web` lookups within a conversation —
+  would reduce token usage and how often the per-minute rate limit gets
+  hit during tool-heavy turns.
 - The anti-hallucination rule covers train/flight numbers, fares, and hotel
   names explicitly, but not other invented specifics like restaurant names
   — seen once in testing, not yet fixed.
-- CORS is wide open (`*`) for local development; needs locking to the
-  actual deployed frontend origin before going live.
-- The frontend hardcodes `http://localhost:8000` as the API base — needs
-  to become configurable once there's a deployed backend URL.
-- Not deployed anywhere yet — backend persistence is now deployment-ready
-  (Postgres), but the app itself still only runs locally.
+- Occasional literal `<br>` text in table cells (cosmetic only).
+- Render's free tier cold-starts after inactivity — acceptable for a
+  portfolio/demo project, would need a paid tier or a different host to
+  avoid for a real-traffic product.
